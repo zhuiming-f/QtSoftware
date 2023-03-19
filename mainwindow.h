@@ -20,6 +20,7 @@ public:
 
     //void focusOutEvent(QFocusEvent *event); //重载QWidget的聚焦函数
     //void pushData();
+    void readData();
 
 private slots:
     void on_processInfo_pushButton_clicked();
@@ -27,6 +28,8 @@ private slots:
     void on_addTaskGroup_pushButton_clicked();
 
     void on_addTask_pushButton_clicked();
+
+    void on_del_pushButton_clicked();
 
 private:
     Ui::MainWindow *ui;
