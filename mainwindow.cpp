@@ -44,17 +44,7 @@ MainWindow::MainWindow(QWidget *parent)
         return;
     }
 
-    //treeView模块
-    //创建数据模型指针变量  并关联视图控件以同步模型的数据变化到视图
-    m_model=new QStandardItemModel(ui->treeView);
-    ui->treeView->setModel(m_model);
-
-    //设置水平表头
-    //ui->treeView->header()->setSectionResizeMode(QHeaderView::Fixed);
-    m_model->setHorizontalHeaderLabels(QStringList()<<""<<"计划编号"<<"起始时刻"<<"终止时刻"<<"时间码类型"<<"指向1"<<"指向2"<<"指向3"<<"指向类型"<<"拍摄帧数"<<"曝光时间"<<"帧间间隔"<<"完成状态");
-
-
-
+    readData();
 }
 
 MainWindow::~MainWindow()
@@ -63,7 +53,7 @@ MainWindow::~MainWindow()
         delete task;
         task=nullptr;
     }
-    /*
+
     int rowCount=ui->taskInfo->rowCount();
     int columnCount=ui->taskInfo->columnCount();
     for(int row=0;row<rowCount;++row){
@@ -72,7 +62,7 @@ MainWindow::~MainWindow()
             if(item!=nullptr) delete item;
         }
     }
-    */
+
 
     if(db.isOpen()) db.close();
     delete ui;
@@ -83,7 +73,7 @@ void MainWindow::on_processInfo_pushButton_clicked()
 {
     //task->exec();
 }
-
+/*
 void MainWindow::on_addTaskGroup_pushButton_clicked()
 {
     int idx=m_model->rowCount();  //获取模型的行数
@@ -160,10 +150,55 @@ void MainWindow::on_del_pushButton_clicked()
         parentItem->removeRow(row);
     }
 }
+*/
 
 
 void MainWindow::readData()
 {
+    QStandardItemModel *model=new QStandardItemModel();
+    ui->treeView->setModel(model);
+    model->setHorizontalHeaderLabels(QStringList()<<""<<"计划编号"<<"起始时刻"<<"终止时刻"<<"时间码类型"<<"指向1"<<"指向2"<<"指向3"<<"指向类型"<<"拍摄帧数"<<"曝光时间"<<"帧间间隔"<<"状态");
+#if 1
+    QSqlQuery query;
+    query.exec("SELECT * FROM tasklist ORDER BY 所属任务集, 起始时刻");
 
+    QList<QStandardItem*> taskGroup; //局部变量taskGroup会自动被销毁  QList类对象在销毁时会自动调用其中每个元素的析构函数 从而释放它们所占用的内存 无须手动释放
+    int currentID=-1,count=1;
+    while(query.next()){
+        //QString taskName=query.value(0).toString();
+        int groupID=query.value(1).toInt();
+
+        if(groupID!=currentID){
+            count=1;
+            currentID=groupID;
+            taskGroup.clear();
+            taskGroup<<new QStandardItem(QString("任务集%1").arg(currentID));
+            for(int i=0;i<12;i++) taskGroup<<new QStandardItem(QString(""));
+            for(int i=0;i<13;++i) taskGroup[i]->setFlags(Qt::ItemIsEnabled);
+            model->appendRow(taskGroup);
+        }
+
+        QModelIndex groupIndex=model->indexFromItem(taskGroup[0]);
+        QStandardItem *parentItem=model->itemFromIndex(groupIndex);
+        QList<QStandardItem*> rowItems;
+        rowItems<<new QStandardItem(QString("任务%1").arg(count++));
+        for(int i=0;i<13;i++){
+            if(i==1) continue;
+
+            QString strValue=query.isNull(i)?"":query.value(i).toString(); //先判断是否为空
+            //if(i==7) qDebug()<<strValue<<Qt::endl;
+            if(i==12){
+                int value=query.value(i).toInt();
+
+                if(value==1) strValue="已完成";
+                else if(value==0) strValue="未完成";
+                else if(value==2) strValue="处理中";
+                else strValue="有冲突";
+            }
+            rowItems<<new QStandardItem(strValue);
+        }
+        parentItem->appendRow(rowItems);
+    }
+#endif
 }
 

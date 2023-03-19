@@ -25,15 +25,15 @@ public:
 private slots:
     void on_processInfo_pushButton_clicked();
 
-    void on_addTaskGroup_pushButton_clicked();
+    //void on_addTaskGroup_pushButton_clicked();
 
-    void on_addTask_pushButton_clicked();
+    //void on_addTask_pushButton_clicked();
 
-    void on_del_pushButton_clicked();
+    //void on_del_pushButton_clicked();
 
 private:
     Ui::MainWindow *ui;
-    QStandardItemModel *m_model;
+    //QStandardItemModel *m_model;
     tasklist *task;
 
     QSqlDatabase db;
