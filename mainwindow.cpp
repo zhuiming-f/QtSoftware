@@ -43,7 +43,6 @@ MainWindow::MainWindow(QWidget *parent)
         qDebug()<<"Query error: "<<query.lastError().text();
         return;
     }
-
     readData();
 }
 
@@ -63,7 +62,6 @@ MainWindow::~MainWindow()
         }
     }
 
-
     if(db.isOpen()) db.close();
     delete ui;
 }
@@ -74,6 +72,10 @@ void MainWindow::on_processInfo_pushButton_clicked()
     //task->exec();
 }
 
+void MainWindow::on_addTaskGroup_pushButton_clicked()
+{
+
+}
 
 void MainWindow::readData()
 {
@@ -96,7 +98,6 @@ void MainWindow::readData()
             taskGroup.clear();
             taskGroup<<new QStandardItem(QString("任务集%1").arg(currentID));
             for(int i=0;i<12;i++) taskGroup<<new QStandardItem(QString(""));
-            //for(int i=0;i<13;++i) taskGroup[i]->setFlags(Qt::ItemIsEnabled);
             for(int i=0;i<13;++i) taskGroup[i]->setFlags(taskGroup[0]->flags()&~(Qt::ItemIsEditable));
             model->appendRow(taskGroup);
         }
@@ -131,13 +132,114 @@ void MainWindow::readData()
     connect(ui->treeView,&QTreeView::clicked,this,[=](const QModelIndex &index){
         //获取所选中行的第i行的数据信息
         for(int i=1;i<13;++i){
-            //ui->lineEdit_1->setText(index.sibling(index.row(),1).data().toString());
-
-            QString lineEditName=QString("lineEdit_%1").arg(i);
-            QLineEdit* lineEdit=this->findChild<QLineEdit*>(lineEditName);
-            if(lineEdit!=nullptr) lineEdit->setText(index.sibling(index.row(),i).data().toString());
+            if(i==2||i==3){
+                QString dateTimeEditName=QString("dateTimeEdit_%1").arg(i);
+                QDateTimeEdit* dateTimeEdit=this->findChild<QDateTimeEdit*>(dateTimeEditName);
+                if(dateTimeEdit){
+                    QDateTime dateTime=index.sibling(index.row(),i).data().toDateTime();
+                    //qDebug()<<dateTime;
+                    if(dateTime.isValid()) dateTimeEdit->setDateTime(index.sibling(index.row(),i).data().toDateTime());
+                    else dateTimeEdit->setDateTime(QDateTime::currentDateTime());
+                }
+            }
+            else{
+                QString lineEditName=QString("lineEdit_%1").arg(i);
+                QLineEdit* lineEdit=this->findChild<QLineEdit*>(lineEditName);
+                //选择任务集行 判空
+                if(lineEdit) lineEdit->setText(index.sibling(index.row(),i).data().toString());
+            }
         }
     });
 
+#if 1
+    connect(ui->dateTimeEdit_2,&QDateTimeEdit::dateTimeChanged,this,[=](const QDateTime &datetime){
+        ui->dateTimeEdit_3->setMinimumDateTime(datetime); //设置最小时间
+        if(ui->dateTimeEdit_3->dateTime()<datetime){
+            ui->dateTimeEdit_3->setDateTime(datetime);
+        }
+    });
+#endif
 }
+
+void MainWindow::on_update_pushButton_clicked()
+{
+    QSqlQuery query;
+    QString sql;
+
+    QString column_1=ui->treeView->model()->headerData(1,Qt::Horizontal,Qt::DisplayRole).toString();
+    QString column_2=ui->treeView->model()->headerData(2,Qt::Horizontal,Qt::DisplayRole).toString();
+    //qDebug()<<column_2;
+    QString column_3=ui->treeView->model()->headerData(3,Qt::Horizontal,Qt::DisplayRole).toString();
+    QString column_4=ui->treeView->model()->headerData(4,Qt::Horizontal,Qt::DisplayRole).toString();
+    QString column_5=ui->treeView->model()->headerData(5,Qt::Horizontal,Qt::DisplayRole).toString();
+    QString column_6=ui->treeView->model()->headerData(6,Qt::Horizontal,Qt::DisplayRole).toString();
+    QString column_7=ui->treeView->model()->headerData(7,Qt::Horizontal,Qt::DisplayRole).toString();
+    QString column_8=ui->treeView->model()->headerData(8,Qt::Horizontal,Qt::DisplayRole).toString();
+    QString column_9=ui->treeView->model()->headerData(9,Qt::Horizontal,Qt::DisplayRole).toString();
+    QString column_10=ui->treeView->model()->headerData(10,Qt::Horizontal,Qt::DisplayRole).toString();
+    QString column_11=ui->treeView->model()->headerData(11,Qt::Horizontal,Qt::DisplayRole).toString();
+
+    QString planID=ui->lineEdit_1->text();
+    QString start=ui->dateTimeEdit_2->dateTime().toString("yyyy-MM-dd HH:mm:ss");
+    //qDebug()<<start;
+    QString end=ui->dateTimeEdit_3->dateTime().toString("yyyy-MM-dd HH:mm:ss");
+    QString timeType=ui->lineEdit_4->text().trimmed();
+    //qDebug()<<timeType.length();
+    QString directType=ui->lineEdit_8->text().trimmed();
+    //qDebug()<<directType;
+    double direct_1=ui->lineEdit_5->text().toDouble();
+    double direct_2=ui->lineEdit_6->text().toDouble();
+    double exposure=ui->lineEdit_10->text().toDouble();
+    double frameInterval=ui->lineEdit_11->text().toDouble();
+
+    int frames=ui->lineEdit_9->text().toInt();
+    int direct_3=ui->lineEdit_7->text().toInt();
+
+    sql=QString("UPDATE tasklist SET %1='%2', %3='%4', %5='%6', %7=%8, %9=%10,%11=%12,%13='%14',%15=%16,%17=%18,%19=%20 WHERE %21='%22'")
+            .arg(column_2).arg(start)
+            .arg(column_3).arg(end)
+            .arg(column_4).arg(timeType)
+            .arg(column_5).arg(direct_1)
+            .arg(column_6).arg(direct_2)
+            .arg(column_7).arg(direct_3)
+            .arg(column_8).arg(directType)
+            .arg(column_9).arg(frames)
+            .arg(column_10).arg(exposure)
+            .arg(column_11).arg(frameInterval)
+            .arg(column_1).arg(planID);
+
+
+    qDebug()<<sql;
+
+    if(!query.exec(sql)){
+        qDebug()<<"fail to update: "<<query.lastError().text();
+    }
+    else{
+        qDebug()<<"update succeeded";
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
