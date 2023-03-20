@@ -73,84 +73,6 @@ void MainWindow::on_processInfo_pushButton_clicked()
 {
     //task->exec();
 }
-/*
-void MainWindow::on_addTaskGroup_pushButton_clicked()
-{
-    int idx=m_model->rowCount();  //获取模型的行数
-    QList<QStandardItem*> taskGroup;
-    taskGroup<<new QStandardItem(QString("任务集%1").arg(idx+1));
-
-    taskGroup[0]->setData(-1,Qt::UserRole+1);
-    m_model->appendRow(taskGroup);
-}
-
-
-void MainWindow::on_addTask_pushButton_clicked()
-{
-    QModelIndex cur=ui->treeView->currentIndex();
-    int row=cur.row();
-    int column=cur.column();
-    int groupRow=cur.data(Qt::UserRole+1).toInt();
-
-    if(row==-1||column==-1||groupRow!=-1){
-        return;
-    }
-
-    QStandardItem *curItem=m_model->item(row);
-
-    QList<QStandardItem*> task;
-    task<<new QStandardItem(QString("任务%1").arg(curItem->rowCount()+1))
-         << new QStandardItem(QString(" "))
-         << new QStandardItem(QString(" "))
-         << new QStandardItem(QString(" "))
-         << new QStandardItem(QString(" "))
-         << new QStandardItem(QString(" "))
-         << new QStandardItem(QString(" "))
-         << new QStandardItem(QString(" "))
-         << new QStandardItem(QString(" "))
-         << new QStandardItem(QString(" "))
-         << new QStandardItem(QString(" "))
-         << new QStandardItem(QString(" "))
-         << new QStandardItem(QString(" "));
-
-
-    for(int i=0;i<13;i++){
-        task[i]->setData(row,Qt::UserRole+1);
-    }
-
-    curItem->appendRow(task);
-}
-
-
-
-
-
-void MainWindow::on_del_pushButton_clicked()
-{
-    QModelIndex curIndex = ui->treeView->currentIndex();
-    int row = curIndex.row();
-    int column = curIndex.column();
-
-    //当前行列值包含-1值或当前节点非顶级节点时返回
-    if( -1 == row || -1 == column)
-    {
-        return;
-    }
-
-    int parentRow = curIndex.data(Qt::UserRole + 1).toInt();
-    //判断顶级节点值选择相应的移除操作
-    if(-1 == parentRow)
-    {
-        m_model->removeRow(row);
-    }
-    else
-    {
-        //移除某个子节点需要找到其顶级节点
-        QStandardItem *parentItem = m_model->item(parentRow);
-        parentItem->removeRow(row);
-    }
-}
-*/
 
 
 void MainWindow::readData()
@@ -174,7 +96,8 @@ void MainWindow::readData()
             taskGroup.clear();
             taskGroup<<new QStandardItem(QString("任务集%1").arg(currentID));
             for(int i=0;i<12;i++) taskGroup<<new QStandardItem(QString(""));
-            for(int i=0;i<13;++i) taskGroup[i]->setFlags(Qt::ItemIsEnabled);
+            //for(int i=0;i<13;++i) taskGroup[i]->setFlags(Qt::ItemIsEnabled);
+            for(int i=0;i<13;++i) taskGroup[i]->setFlags(taskGroup[0]->flags()&~(Qt::ItemIsEditable));
             model->appendRow(taskGroup);
         }
 
@@ -184,8 +107,12 @@ void MainWindow::readData()
         rowItems<<new QStandardItem(QString("任务%1").arg(count++));
         for(int i=0;i<13;i++){
             if(i==1) continue;
-
             QString strValue=query.isNull(i)?"":query.value(i).toString(); //先判断是否为空
+            if(i==2||i==3){
+                QDateTime dateTime=QVariant::fromValue(strValue).toDateTime();
+                strValue=dateTime.toString("yyyy-MM-dd HH:mm:ss");  //大写HH表示24小时制度 hh表示12小时制
+            }
+
             //if(i==7) qDebug()<<strValue<<Qt::endl;
             if(i==12){
                 int value=query.value(i).toInt();
@@ -200,5 +127,17 @@ void MainWindow::readData()
         parentItem->appendRow(rowItems);
     }
 #endif
+
+    connect(ui->treeView,&QTreeView::clicked,this,[=](const QModelIndex &index){
+        //获取所选中行的第i行的数据信息
+        for(int i=1;i<13;++i){
+            //ui->lineEdit_1->setText(index.sibling(index.row(),1).data().toString());
+
+            QString lineEditName=QString("lineEdit_%1").arg(i);
+            QLineEdit* lineEdit=this->findChild<QLineEdit*>(lineEditName);
+            if(lineEdit!=nullptr) lineEdit->setText(index.sibling(index.row(),i).data().toString());
+        }
+    });
+
 }
 
