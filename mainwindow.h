@@ -5,6 +5,7 @@
 #include<QtSql/QSqlDatabase>
 #include <QMainWindow>
 #include<QStandardItem>
+#include<QSet>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -24,19 +25,18 @@ public:
 
 private slots:
     void on_processInfo_pushButton_clicked();
-
     void on_addTaskGroup_pushButton_clicked();
 
     //void on_addTask_pushButton_clicked();
-
-    //void on_del_pushButton_clicked();
-
+    void on_del_pushButton_clicked();
     void on_update_pushButton_clicked();
 
 private:
     Ui::MainWindow *ui;
-    tasklist *task;
 
+    tasklist *task;
+    QStandardItemModel *model;
+    QSet<int> usedIDs;
     QSqlDatabase db;
 };
 #endif // MAINWINDOW_H

@@ -15,8 +15,8 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
     this->setWindowTitle("tasklist");
     //ui->taskInfo->hide();
-
-    task=new tasklist(); //创建进程信息子界面
+    //task=new tasklist(); //创建进程信息子界面
+    model=new QStandardItemModel();
 
     if(QSqlDatabase::contains("qt_sql_default_connection")){
         db=QSqlDatabase::database("qt_sql_default_connection");
@@ -72,14 +72,9 @@ void MainWindow::on_processInfo_pushButton_clicked()
     //task->exec();
 }
 
-void MainWindow::on_addTaskGroup_pushButton_clicked()
-{
-
-}
 
 void MainWindow::readData()
 {
-    QStandardItemModel *model=new QStandardItemModel();
     ui->treeView->setModel(model);
     model->setHorizontalHeaderLabels(QStringList()<<""<<"计划编号"<<"起始时刻"<<"终止时刻"<<"时间码类型"<<"指向1"<<"指向2"<<"指向3"<<"指向类型"<<"拍摄帧数"<<"曝光时间"<<"帧间间隔"<<"状态");
 #if 1
@@ -97,15 +92,18 @@ void MainWindow::readData()
             currentID=groupID;
             taskGroup.clear();
             taskGroup<<new QStandardItem(QString("任务集%1").arg(currentID));
+            usedIDs.insert(currentID);
             for(int i=0;i<12;i++) taskGroup<<new QStandardItem(QString(""));
             for(int i=0;i<13;++i) taskGroup[i]->setFlags(taskGroup[0]->flags()&~(Qt::ItemIsEditable));
             model->appendRow(taskGroup);
         }
-
+        //通过名称获取在model中的索引
         QModelIndex groupIndex=model->indexFromItem(taskGroup[0]);
+        //获取该任务集的指针
         QStandardItem *parentItem=model->itemFromIndex(groupIndex);
         QList<QStandardItem*> rowItems;
         rowItems<<new QStandardItem(QString("任务%1").arg(count++));
+        //任务添加在对应任务集下
         for(int i=0;i<13;i++){
             if(i==1) continue;
             QString strValue=query.isNull(i)?"":query.value(i).toString(); //先判断是否为空
@@ -126,6 +124,11 @@ void MainWindow::readData()
             rowItems<<new QStandardItem(strValue);
         }
         parentItem->appendRow(rowItems);
+        /*结构
+        *model  根
+         **parentItem  父
+           ***rowItems  子
+        */
     }
 #endif
 
@@ -168,7 +171,6 @@ void MainWindow::on_update_pushButton_clicked()
 
     QString column_1=ui->treeView->model()->headerData(1,Qt::Horizontal,Qt::DisplayRole).toString();
     QString column_2=ui->treeView->model()->headerData(2,Qt::Horizontal,Qt::DisplayRole).toString();
-    //qDebug()<<column_2;
     QString column_3=ui->treeView->model()->headerData(3,Qt::Horizontal,Qt::DisplayRole).toString();
     QString column_4=ui->treeView->model()->headerData(4,Qt::Horizontal,Qt::DisplayRole).toString();
     QString column_5=ui->treeView->model()->headerData(5,Qt::Horizontal,Qt::DisplayRole).toString();
@@ -181,12 +183,10 @@ void MainWindow::on_update_pushButton_clicked()
 
     QString planID=ui->lineEdit_1->text();
     QString start=ui->dateTimeEdit_2->dateTime().toString("yyyy-MM-dd HH:mm:ss");
-    //qDebug()<<start;
     QString end=ui->dateTimeEdit_3->dateTime().toString("yyyy-MM-dd HH:mm:ss");
     QString timeType=ui->lineEdit_4->text().trimmed();
-    //qDebug()<<timeType.length();
     QString directType=ui->lineEdit_8->text().trimmed();
-    //qDebug()<<directType;
+
     double direct_1=ui->lineEdit_5->text().toDouble();
     double direct_2=ui->lineEdit_6->text().toDouble();
     double exposure=ui->lineEdit_10->text().toDouble();
@@ -208,14 +208,66 @@ void MainWindow::on_update_pushButton_clicked()
             .arg(column_11).arg(frameInterval)
             .arg(column_1).arg(planID);
 
-
-    qDebug()<<sql;
-
     if(!query.exec(sql)){
         qDebug()<<"fail to update: "<<query.lastError().text();
     }
     else{
         qDebug()<<"update succeeded";
+    }
+}
+
+void MainWindow::on_addTaskGroup_pushButton_clicked()
+{
+    int currentID=1;
+    while(usedIDs.contains(currentID)){ //找到最小未使用编号
+        currentID++;
+    }
+
+    QList<QStandardItem*> taskGroup;
+    taskGroup<<new QStandardItem(QString("任务集%1").arg(currentID));
+    usedIDs.insert(currentID);
+    for(int i=0;i<12;i++) taskGroup<<new QStandardItem(QString(""));
+    for(int i=0;i<13;++i) taskGroup[i]->setFlags(taskGroup[0]->flags()&~(Qt::ItemIsEditable));
+
+    //将任务集添加到模型中
+    model->appendRow(taskGroup);
+
+}
+
+void MainWindow::on_del_pushButton_clicked()
+{
+    //获取当前选择行
+    //index是指向特定单元格的QModelIndex对象  包含单元格的行号、列号等信息
+    QModelIndex index=ui->treeView->currentIndex();
+    if(index.isValid()){
+        QStandardItem *item=model->itemFromIndex(index);
+        if(item->parent()==nullptr){ //如果item是任务集
+            if(item->rowCount()>0){  //任务集非空
+                QMessageBox::StandardButton ret = QMessageBox::warning(this, tr("删除任务集"), tr("该任务集下有任务，是否全部删除？"), QMessageBox::Yes | QMessageBox::No);
+                if(ret==QMessageBox::Yes){
+                    model->removeRow(index.row()); //删除该行
+                    QString taskGroupName = index.sibling(index.row(), 0).data().toString(); // 获取任务集名称
+                    QString num;
+                    for(int i=4;i<taskGroupName.length();++i){
+                        num+=taskGroupName[i];
+                    }
+                    usedIDs.remove(num.toInt());
+                }
+            }
+            else{  //空任务集
+                model->removeRow(index.row());
+                QString taskGroupName = index.sibling(index.row(), 0).data().toString(); // 获取任务集名称
+                QString num;
+                for(int i=4;i<taskGroupName.length();++i){
+                    num+=taskGroupName[i];
+                }
+
+                usedIDs.remove(num.toInt()); //从集合中移除
+            }
+        }
+        else{  //如果item是任务     获取父节点索引
+            model->removeRow(index.row(),index.parent());  //删除该任务
+        }
     }
 }
 
