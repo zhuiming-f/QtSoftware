@@ -48,6 +48,7 @@ MainWindow::MainWindow(QWidget *parent)
        ***rowItems  子
     */
 
+    //treeView聚焦行信息显示在右侧文本框
     connect(ui->treeView,&QTreeView::clicked,this,[=](const QModelIndex &index){
         //获取所选中行的第i行的数据信息
         for(int i=1;i<13;++i){
@@ -57,8 +58,7 @@ MainWindow::MainWindow(QWidget *parent)
                 if(dateTimeEdit){
                     QDateTime dateTime=index.sibling(index.row(),i).data().toDateTime();
                     //qDebug()<<dateTime;
-                    if(dateTime.isValid()) dateTimeEdit->setDateTime(index.sibling(index.row(),i).data().toDateTime());
-                    else dateTimeEdit->setDateTime(QDateTime::currentDateTime());
+                    dateTimeEdit->setDateTime(index.sibling(index.row(),i).data().toDateTime());
                 }
             }
             else{
@@ -70,11 +70,20 @@ MainWindow::MainWindow(QWidget *parent)
         }
     });
 
+    //处理两个QDateTimeEdit编辑框的逻辑
     connect(ui->dateTimeEdit_2,&QDateTimeEdit::dateTimeChanged,this,[=](const QDateTime &datetime){
         ui->dateTimeEdit_3->setMinimumDateTime(datetime); //设置最小时间
         if(ui->dateTimeEdit_3->dateTime()<datetime){
             ui->dateTimeEdit_3->setDateTime(datetime);
         }
+    });
+
+    //处理计划编号lineEdit_1文本框内容随dateTimeEdit_2的修改而改变的逻辑
+    connect(ui->dateTimeEdit_2,&QDateTimeEdit::dateTimeChanged,this,[=](const QDateTime &datetime){
+        QDate date=datetime.date();
+        int num=readLogFile("D:/ALLFiles/QtFiles/front/planID.log",date);
+        QString planID=QString("%1_%2").arg(date.toString("yyyy-MM-dd")).arg(QString::number(num));
+        ui->lineEdit_1->setText(planID);
     });
 
 }
@@ -100,17 +109,16 @@ void MainWindow::refreshTaskGroup()
 void MainWindow::refreshTaskID()
 {
     vec.clear();
-    //删除模型上添加的所有任务集
     QSqlQuery query;
-    query.exec("SELECT * FROM tasklist ORDER BY 所属任务集, 起始时刻");
+    query.exec("SELECT 所属任务集,起始时刻 FROM tasklist ORDER BY 所属任务集, 起始时刻");
 
     int currentID=-1;
     //把每个任务集中开始最早的任务的时间作为任务集排序的依据
     while(query.next()){
-        int groupID=query.value(1).toInt();
+        int groupID=query.value(0).toInt();
 
         if(groupID!=currentID){
-            QDateTime dateTime=query.value(2).toDateTime();
+            QDateTime dateTime=query.value(1).toDateTime();
             currentID=groupID;
             vec.emplace_back(dateTime,currentID);
         }
@@ -143,20 +151,25 @@ void MainWindow::on_processInfo_pushButton_clicked()
 
 void MainWindow::readData()
 {
+    //更新之前的任务集个数
+    int size1=model->rowCount();
     usedIDs.clear();
+    //删除模型上添加的所有任务集
     model->removeRows(0,model->rowCount());
     QSqlQuery query;
     query.exec("SELECT * FROM tasklist ORDER BY 所属任务集, 起始时刻");
 
     QList<QStandardItem*> taskGroup; //局部变量taskGroup会自动被销毁  QList类对象在销毁时会自动调用其中每个元素的析构函数 从而释放它们所占用的内存 无须手动释放
     int currentID=-1,count=1;
+    //数据库中任务集个数
+    int size2=0;
     while(query.next()){
         int groupID=query.value(1).toInt();
 
         if(groupID!=currentID){
             count=1;
             currentID=groupID;
-
+            size2++;
             taskGroup.clear();
             taskGroup<<new QStandardItem(QString("任务集%1").arg(currentID));
             usedIDs.insert(currentID);
@@ -193,6 +206,15 @@ void MainWindow::readData()
         }
         parentItem->appendRow(rowItems);
     }
+
+    for(int j=size2+1;j<=size1;++j){
+        taskGroup.clear();
+        taskGroup<<new QStandardItem(QString("任务集%1").arg(j));
+        usedIDs.insert(j);
+        for(int i=0;i<12;i++) taskGroup<<new QStandardItem(QString(""));
+        for(int i=0;i<13;++i) taskGroup[i]->setFlags(taskGroup[0]->flags()&~(Qt::ItemIsEditable));
+        model->appendRow(taskGroup);
+    }
 }
 
 void MainWindow::on_update_pushButton_clicked()
@@ -200,6 +222,7 @@ void MainWindow::on_update_pushButton_clicked()
     QSqlQuery query;
     QString sql;
 
+    //字段名
     QString column_1=ui->treeView->model()->headerData(1,Qt::Horizontal,Qt::DisplayRole).toString();
     QString column_2=ui->treeView->model()->headerData(2,Qt::Horizontal,Qt::DisplayRole).toString();
     QString column_3=ui->treeView->model()->headerData(3,Qt::Horizontal,Qt::DisplayRole).toString();
@@ -212,6 +235,8 @@ void MainWindow::on_update_pushButton_clicked()
     QString column_10=ui->treeView->model()->headerData(10,Qt::Horizontal,Qt::DisplayRole).toString();
     QString column_11=ui->treeView->model()->headerData(11,Qt::Horizontal,Qt::DisplayRole).toString();
 
+
+    //编辑框的值
     QString planID=ui->lineEdit_1->text();
     QString start=ui->dateTimeEdit_2->dateTime().toString("yyyy-MM-dd HH:mm:ss");
     QString end=ui->dateTimeEdit_3->dateTime().toString("yyyy-MM-dd HH:mm:ss");
@@ -245,9 +270,9 @@ void MainWindow::on_update_pushButton_clicked()
     else{
         qDebug()<<"update succeeded";
     }
+
     //更新后的任务可能会改变各任务集的次序
-    refreshTaskID();
-    readData();
+
 }
 
 void MainWindow::on_addTaskGroup_pushButton_clicked()
@@ -267,7 +292,7 @@ void MainWindow::on_addTaskGroup_pushButton_clicked()
     //将任务集添加到模型中
     model->appendRow(taskGroup);
 
-
+    QMessageBox::warning(this,tr("警告"),tr("如不给空任务集添加任务,程序退出后不会保存该任务集!"));
 }
 
 void MainWindow::on_addTask_pushButton_clicked()
@@ -402,14 +427,13 @@ void MainWindow::on_del_pushButton_clicked()
             QMessageBox::StandardButton ret = QMessageBox::warning(this, tr("删除任务"), tr("确认删除该任务吗？"), QMessageBox::Yes | QMessageBox::No);
             if(ret==QMessageBox::Yes){
                 model->removeRow(index.row(),index.parent());  //删除该任务
-
             }
             else{
                 return;
             }
         }
-        refreshTaskID();
-        readData();
+        //refreshTaskID();
+        //readData();
     }
 }
 
