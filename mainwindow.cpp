@@ -41,6 +41,7 @@ MainWindow::MainWindow(QWidget *parent)
     ui->treeView->setModel(model);
     model->setHorizontalHeaderLabels(QStringList()<<""<<"计划编号"<<"起始时刻"<<"终止时刻"<<"时间码类型"<<"指向1"<<"指向2"<<"指向3"<<"指向类型"<<"拍摄帧数"<<"曝光时间"<<"帧间间隔"<<"状态");
 
+    refreshTaskID();
     readData();
     /*结构
     *model  根
@@ -89,12 +90,6 @@ MainWindow::~MainWindow()
     if(db.isOpen()) db.close();
     QSqlDatabase::removeDatabase(db.connectionName());
     delete ui;
-}
-
-
-void MainWindow::refreshTaskGroup()
-{
-
 }
 
 void MainWindow::refreshTaskID()
@@ -189,6 +184,8 @@ void MainWindow::readData()
         QStandardItem *parentItem=model->itemFromIndex(groupIndex);
         QList<QStandardItem*> rowItems;
         rowItems<<new QStandardItem(QString("任务%1").arg(count++));
+        rowItems[0]->setFlags(rowItems[0]->flags()&~(Qt::ItemIsEditable));
+
         //任务添加在对应任务集下
         for(int i=1;i<14;i++){
             if(i==2) continue;
@@ -335,12 +332,10 @@ void MainWindow::on_update_pushButton_clicked()
     else{
         qDebug()<<"update succeeded";
     }
+
+
     refreshTaskID();
     readData();
-
-
-    //更新后的任务可能会改变各任务集的次序
-
 }
 
 void MainWindow::on_addTaskGroup_pushButton_clicked()
@@ -359,98 +354,91 @@ void MainWindow::on_addTaskGroup_pushButton_clicked()
     //将任务集添加到模型中
     model->appendRow(taskGroup);
 
-    QMessageBox::warning(this,tr("警告"),tr("如不给空任务集添加任务,程序退出后不会保存该任务集!"));
+    QMessageBox::information(this,tr("提示"),tr("添加成功,请给空任务集添加任务"));
 }
 
 void MainWindow::on_addTask_pushButton_clicked()
 {
 
     QModelIndex index=ui->treeView->currentIndex();
-    QStandardItem *item=model->itemFromIndex(index);
-    QSqlQuery query;
-    if(item->parent()==nullptr){  //任务集才可以添加任务
-        dialog->setStartTime();
-        dialog->setEndTime();
-        if(dialog->exec()==QDialog::Accepted){
-            QString sql=QString("SELECT 计划编号,起始时刻,终止时刻 FROM tasklist ORDER BY 起始时刻 DESC");
+    if(index.isValid()){
+        QStandardItem *item=model->itemFromIndex(index);
+        QSqlQuery query;
+        if(item->parent()==nullptr){  //任务集才可以添加任务
+            dialog->setStartTime();
+            dialog->setEndTime();
+            if(dialog->exec()==QDialog::Accepted){
+                QString sql=QString("SELECT 计划编号,起始时刻,终止时刻 FROM tasklist ORDER BY 起始时刻 DESC");
 
-            QDateTime start=dialog->getStartTime();
-            QDateTime end=dialog->getEndTime();
+                QDateTime start=dialog->getStartTime();
+                QDateTime end=dialog->getEndTime();
 
-            if(!query.exec(sql)){
-                qDebug()<<"select failed: "<<query.lastError().text();
-            }
-            else{
-                qDebug()<<"select succeeded";
-            }
-
-            bool flag=false;
-            QString planID;
-            while(query.next()){
-                QDateTime startTime=query.value(1).toDateTime();
-                QDateTime endTime=query.value(2).toDateTime();
-                if(endTime<start){
-                    flag=true;
-                    break;  //无冲突
-                }
-                else{
-                    if(end<startTime){ //与当前这个任务无交集 下一个
-                        continue;
-                    }
-                    else{  //与当前任务有交集
-                        planID=query.value(0).toString();
-                        break;
-                    }
-                }
-            }
-            if(flag){
-                //任务所要插入的任务集名
-                QString taskGroupName=index.sibling(index.row(),0).data().toString();
-                //待插入任务的日期
-                QString date=start.date().toString("yyyy-MM-dd");
-                //构造模糊查询模式
-                QString pattern=QString("%1%").arg(date);
-                QString sql=QString("SELECT 计划编号 FROM tasklist WHERE 计划编号 LIKE '%1' ORDER BY 计划编号 DESC").arg(pattern);
                 if(!query.exec(sql)){
                     qDebug()<<"select failed: "<<query.lastError().text();
                 }
                 else{
                     qDebug()<<"select succeeded";
                 }
-                QString maxID=query.value(0).toString();
-                QString insertID;
-                for(int i=11;i<maxID.length();++i){
-                    insertID+=maxID[i];
-                }
-                int num=insertID.toInt()+1;
-                //待插入任务的数字
-                insertID=QString::number(num);
-                //待插入计划编号
-                QString insertName=QString("%1_%2").arg(date).arg(insertID);
 
-                //获取任务集数字
-                QString taskGroupNum;
-                for(int i=3;i<taskGroupName.length();++i){
-                    taskGroupNum+=taskGroupName[i];
+                bool flag=true;
+                QString planID;
+                //查询降序任务时刻区间
+                while(query.next()){
+                    QDateTime startTime=query.value(1).toDateTime();
+                    QDateTime endTime=query.value(2).toDateTime();
+
+                    //[startTime,endTime]已有任务区间  [start,end]待插入任务区间
+                    if(endTime<start){
+                        break;  //无冲突
+                    }
+                    else{
+                        if(end<startTime){ //与当前这个任务无交集 下一个
+                            continue;
+                        }
+                        else{  //与当前任务有交集 即有冲突
+                            planID=query.value(0).toString();
+                            flag=false;
+                            break;
+                        }
+                    }
                 }
 
-                sql=QString("insert into tasklist(计划编号,所属任务集,起始时刻,终止时刻) values('%1','%2','%3')").arg(insertName).arg(taskGroupNum.toInt()).arg(start.toString("yyyy-MM-dd HH:mm:ss")).arg(end.toString("yyyy-MM-dd HH:mm:ss"));
-                if(!query.exec(sql)){
-                    qDebug()<<"insert failed: "<<query.lastError().text();
+                if(flag){
+                    //任务所要插入的任务集名
+                    QString taskGroupName=index.sibling(index.row(),0).data().toString();
+                    //待插入任务的日期
+                    QString date=start.date().toString("yyyy-MM-dd");
+                    int num=readLogFile("D:/ALLFiles/QtFiles/front/planID.log",start.date());
+
+                    planID=QString("%1_%2").arg(date).arg(num);
+
+                    //获取任务集后缀数字
+                    QString taskGroupNum;
+                    for(int i=3;i<taskGroupName.length();++i){
+                        taskGroupNum+=taskGroupName[i];
+                    }
+
+                    sql=QString("insert into tasklist(计划编号,所属任务集,起始时刻,终止时刻) values('%1',%2,'%3','%4')").arg(planID).arg(taskGroupNum.toInt()).arg(start.toString("yyyy-MM-dd HH:mm:ss")).arg(end.toString("yyyy-MM-dd HH:mm:ss"));
+                    if(!query.exec(sql)){
+                        qDebug()<<"insert failed: "<<query.lastError().text();
+                    }
+                    else{
+                        qDebug()<<"insert succeeded";
+                    }
+                    refreshTaskID();
+                    readData();
                 }
                 else{
-                    qDebug()<<"insert succeeded";
+                    QString text=QString("与计划编号为: %1 的任务有冲突,添加失败").arg(planID);
+                    //qDebug()<<text;
+                    /*QMessageBox::StandardButton ret=*/
+                    QMessageBox::critical(this, tr("错误"), tr(text.toUtf8().constData()));
                 }
             }
-            else{
-                QString text=QString("与计划编号为: %1 的任务有冲突,添加失败").arg(planID);
-                /*QMessageBox::StandardButton ret=*/
-                QMessageBox::critical(this, tr("错误"), tr(text.toUtf8().constData()));
-            }
         }
-    }
-    else{
-        QMessageBox::warning(this, tr("警告"), tr("任务集下才能添加任务"));
+        else{
+            QMessageBox::information(this, tr("提示"), tr("任务集下才能添加任务"));
+        }
     }
 }
 
@@ -459,7 +447,8 @@ void MainWindow::on_del_pushButton_clicked()
     //获取当前选择行
     //index是指向特定单元格的QModelIndex对象  包含单元格的行号、列号等信息
     QModelIndex index=ui->treeView->currentIndex();
-
+    QSqlQuery query;
+    QString sql;
     if(index.isValid()){
         QStandardItem *item=model->itemFromIndex(index);
         if(item->parent()==nullptr){ //如果item是任务集
@@ -471,6 +460,10 @@ void MainWindow::on_del_pushButton_clicked()
                     QString num;
                     for(int i=3;i<taskGroupName.length();++i){
                         num+=taskGroupName[i];
+                    }
+                    sql=QString("DELETE FROM tasklist WHERE 所属任务集 = '%1'").arg(num.toInt());
+                    if(!query.exec(sql)){
+                        qDebug()<<"DELETE failed: "<<query.lastError().text();
                     }
                     model->removeRow(index.row()); //删除该行
                     usedIDs.remove(num.toInt());
@@ -493,6 +486,12 @@ void MainWindow::on_del_pushButton_clicked()
         else{  //如果item是任务     获取父节点索引
             QMessageBox::StandardButton ret = QMessageBox::warning(this, tr("删除任务"), tr("确认删除该任务吗？"), QMessageBox::Yes | QMessageBox::No);
             if(ret==QMessageBox::Yes){
+                QString taskName = index.sibling(index.row(), 1).data().toString(); // 获取计划编号
+                //qDebug()<<taskName;
+                sql=QString("DELETE FROM tasklist WHERE 计划编号 = '%1'").arg(taskName);
+                if(!query.exec(sql)){
+                    qDebug()<<"delete failed: "<<query.lastError().text();
+                }
                 model->removeRow(index.row(),index.parent());  //删除该任务
             }
             else{

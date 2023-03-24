@@ -28,7 +28,6 @@ public:
 
     //void focusOutEvent(QFocusEvent *event); //重载QWidget的聚焦函数
     void refreshTaskID();
-    void refreshTaskGroup();
     void readData();
     //读取当日总任务数（包含被删除的任务）
     int readLogFile(const QString& filePath,QDate taskDate);
