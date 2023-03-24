@@ -3,6 +3,7 @@
 
 #include<QTimer>
 #include<QProcess>
+#include<QSqlDatabase>
 
 tasklist::tasklist(QDialog *parent) :
     QDialog(parent),
@@ -18,8 +19,9 @@ tasklist::tasklist(QDialog *parent) :
 
 tasklist::~tasklist()
 {
-    delete ui;
+
     delete m_timer;
+    delete ui;
 }
 
 void tasklist::slotProcessInfo(const QString &processName)

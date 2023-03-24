@@ -77,26 +77,17 @@ MainWindow::MainWindow(QWidget *parent)
             ui->dateTimeEdit_3->setDateTime(datetime);
         }
     });
-
-    //处理计划编号lineEdit_1文本框内容随dateTimeEdit_2的修改而改变的逻辑
-    connect(ui->dateTimeEdit_2,&QDateTimeEdit::dateTimeChanged,this,[=](const QDateTime &datetime){
-        QDate date=datetime.date();
-        int num=readLogFile("D:/ALLFiles/QtFiles/front/planID.log",date);
-        QString planID=QString("%1_%2").arg(date.toString("yyyy-MM-dd")).arg(QString::number(num));
-        ui->lineEdit_1->setText(planID);
-    });
-
 }
 
 MainWindow::~MainWindow()
 {
-    if(db.isOpen()) db.close();
-    QSqlDatabase::removeDatabase(db.connectionName());
-
     //task将当前窗口作为其父对象 在父对象ui被销毁时也会析构掉
     delete task;
     delete dialog;
     delete model;
+
+    if(db.isOpen()) db.close();
+    QSqlDatabase::removeDatabase(db.connectionName());
     delete ui;
 }
 
@@ -108,40 +99,54 @@ void MainWindow::refreshTaskGroup()
 
 void MainWindow::refreshTaskID()
 {
-    vec.clear();
+    std::vector<std::pair<QDateTime,int>> vec1;
     QSqlQuery query;
-    query.exec("SELECT 所属任务集,起始时刻 FROM tasklist ORDER BY 所属任务集, 起始时刻");
+    QString sql="SELECT id,所属任务集,起始时刻 FROM tasklist ORDER BY 所属任务集, 起始时刻";
+    if(!query.exec(sql)){
+        qDebug()<<"select failed: "<<query.lastError().text();
+    }
 
     int currentID=-1;
     //把每个任务集中开始最早的任务的时间作为任务集排序的依据
     while(query.next()){
-        int groupID=query.value(0).toInt();
+        int groupID=query.value(1).toInt();
 
         if(groupID!=currentID){
-            QDateTime dateTime=query.value(1).toDateTime();
+            QDateTime dateTime=query.value(2).toDateTime();
             currentID=groupID;
-            vec.emplace_back(dateTime,currentID);
+            vec1.emplace_back(dateTime,currentID);
         }
     }
     //任务集编号重新洗牌
-    std::sort(vec.begin(),vec.end());
+    std::sort(vec1.begin(),vec1.end()); //3 1 4 2--->1 2 3 4
 
-    QSqlQuery query1;
-
-    for(int i=0;i<int(vec.size());++i){
-        qDebug()<<vec[i].second;
-        if(!query1.exec(QString("SELECT 计划编号 FROM tasklist WHERE 所属任务集 = %1").arg(vec[i].second))){
+    std::vector<std::vector<int>> vec2;
+    vec2.resize(int(vec1.size()));
+    //问题
+    for(int i=0;i<int(vec1.size());++i){
+        QString sql=QString("SELECT id FROM tasklist WHERE 所属任务集 = %1").arg(vec1[i].second);
+        if(!query.exec(sql)){
             qDebug()<<"select failed: "<<query.lastError().text();
         }
-        else{
-            qDebug()<<"select succeeded";
-        }
-
-        while(query1.next()){
-            QString planID=query1.value(0).toString();
-            query.exec(QString("UPDATE tasklist SET 所属任务集 = %1 WHERE 计划编号 = '%2'").arg(i+1).arg(planID));
+        while(query.next()){
+            int id=query.value(0).toInt();
+            vec2[i].push_back(id);
         }
     }
+#if 1
+    for(int i=0;i<int(vec2.size());++i){
+        QString ids;
+        for(int j=0;j<int(vec2[i].size());++j){
+            if(j>0) ids+=",";
+            ids+=QString::number(vec2[i][j]);
+        }
+        sql=QString("UPDATE tasklist SET 所属任务集 = %1 WHERE id IN (%2)").arg(i+1).arg(ids);
+
+        if(!query.exec(sql)){
+            qDebug()<<__LINE__<<" update failed: "<<query.lastError().text();
+        }
+    }
+#endif
 }
 
 void MainWindow::on_processInfo_pushButton_clicked()
@@ -164,7 +169,7 @@ void MainWindow::readData()
     //数据库中任务集个数
     int size2=0;
     while(query.next()){
-        int groupID=query.value(1).toInt();
+        int groupID=query.value(2).toInt();
 
         if(groupID!=currentID){
             count=1;
@@ -185,16 +190,16 @@ void MainWindow::readData()
         QList<QStandardItem*> rowItems;
         rowItems<<new QStandardItem(QString("任务%1").arg(count++));
         //任务添加在对应任务集下
-        for(int i=0;i<13;i++){
-            if(i==1) continue;
+        for(int i=1;i<14;i++){
+            if(i==2) continue;
             QString strValue=query.isNull(i)?"":query.value(i).toString(); //先判断是否为空
-            if(i==2||i==3){
+            if(i==3||i==4){
                 QDateTime dateTime=QVariant::fromValue(strValue).toDateTime();
                 strValue=dateTime.toString("yyyy-MM-dd HH:mm:ss");  //大写HH表示24小时制度 hh表示12小时制
             }
 
-            //if(i==7) qDebug()<<strValue<<Qt::endl;
-            if(i==12){
+            //if(i==8) qDebug()<<strValue<<Qt::endl;
+            if(i==13){
                 int value=query.value(i).toInt();
 
                 if(value==1) strValue="已完成";
@@ -215,6 +220,54 @@ void MainWindow::readData()
         for(int i=0;i<13;++i) taskGroup[i]->setFlags(taskGroup[0]->flags()&~(Qt::ItemIsEditable));
         model->appendRow(taskGroup);
     }
+}
+
+int MainWindow::readLogFile(const QString &filePath, QDate taskDate)
+{
+    QFile file(filePath);
+
+    int res=1;
+
+    if(file.open(QIODevice::ReadWrite|QIODevice::Text)){  //以文本模式打开
+        QTextStream stream(&file);
+
+        QStringList lines;
+        bool flag=false;
+        while(!stream.atEnd()){  //遍历找到与当前日期相等的日志条目
+            QString line=stream.readLine();
+            QStringList parts=line.split(" "); //以空格为分隔符把QString拆分为QStringList
+            //parts.at(0)与parts[0]区别在于索引出错时 at(1)返回无效值  而[1]直接抛出一个越界异常
+            QString str=parts.at(0);
+            QDate date=QDate::fromString(str,"yyyy-MM-dd");
+            int num=parts.at(1).toInt();
+
+            //处理过期信息  这里可以等过期信息多点再重置
+            if(QDate::currentDate()<=date&&date!=taskDate)
+            {
+                lines.append(line);
+            }
+
+            if(date==taskDate){
+                flag=true;
+                res=num;
+                num++;
+                lines.append(QString("%1 %2").arg(date.toString("yyyy-MM-dd")).arg(QString::number(num)));
+            }
+        }
+
+        //全部清空 写入未过期信息
+        file.resize(0);
+        foreach(const QString &line,lines){
+            stream<<line<<Qt::endl;
+        }
+
+        if(!flag){
+            stream<<QString("%1 2").arg(taskDate.toString("yyyy-MM-dd"));
+        }
+
+        file.close();
+    }
+    return res;
 }
 
 void MainWindow::on_update_pushButton_clicked()
@@ -238,6 +291,17 @@ void MainWindow::on_update_pushButton_clicked()
 
     //编辑框的值
     QString planID=ui->lineEdit_1->text();
+    sql=QString("select id from tasklist where 计划编号 = '%1'").arg(planID);
+
+    query.exec(sql);
+    query.next();
+    int id=query.value(0).toInt();
+
+    //编号
+    QDate ID=ui->dateTimeEdit_2->date();
+    int num=readLogFile("D:/ALLFiles/QtFiles/front/planID.log",ID);
+    planID=QString("%1_%2").arg(ID.toString("yyyy-MM-dd")).arg(num);
+
     QString start=ui->dateTimeEdit_2->dateTime().toString("yyyy-MM-dd HH:mm:ss");
     QString end=ui->dateTimeEdit_3->dateTime().toString("yyyy-MM-dd HH:mm:ss");
     QString timeType=ui->lineEdit_4->text().trimmed();
@@ -251,7 +315,7 @@ void MainWindow::on_update_pushButton_clicked()
     int frames=ui->lineEdit_9->text().toInt();
     int direct_3=ui->lineEdit_7->text().toInt();
 
-    sql=QString("UPDATE tasklist SET %1='%2', %3='%4', %5='%6', %7=%8, %9=%10,%11=%12,%13='%14',%15=%16,%17=%18,%19=%20 WHERE %21='%22'")
+    sql=QString("UPDATE tasklist SET %1='%2', %3='%4', %5='%6', %7=%8, %9=%10,%11=%12,%13='%14',%15=%16,%17=%18,%19=%20,%21='%22' WHERE id = %23")
             .arg(column_2).arg(start)
             .arg(column_3).arg(end)
             .arg(column_4).arg(timeType)
@@ -262,7 +326,8 @@ void MainWindow::on_update_pushButton_clicked()
             .arg(column_9).arg(frames)
             .arg(column_10).arg(exposure)
             .arg(column_11).arg(frameInterval)
-            .arg(column_1).arg(planID);
+            .arg(column_1).arg(planID)
+            .arg(id);
 
     if(!query.exec(sql)){
         qDebug()<<"fail to update: "<<query.lastError().text();
@@ -270,6 +335,9 @@ void MainWindow::on_update_pushButton_clicked()
     else{
         qDebug()<<"update succeeded";
     }
+    refreshTaskID();
+    readData();
+
 
     //更新后的任务可能会改变各任务集的次序
 
@@ -280,7 +348,6 @@ void MainWindow::on_addTaskGroup_pushButton_clicked()
     int currentID=1;
     while(usedIDs.contains(currentID)){ //找到最小未使用编号
         currentID++;
-        //qDebug()<<currentID;
     }
 
     usedIDs.insert(currentID);
@@ -432,8 +499,8 @@ void MainWindow::on_del_pushButton_clicked()
                 return;
             }
         }
-        //refreshTaskID();
-        //readData();
+        refreshTaskID();
+        readData();
     }
 }
 
